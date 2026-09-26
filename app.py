@@ -217,10 +217,15 @@ class App:
                 result, _ = generate(settings, 'reply', {'korean': data['korean'], 'reviewed_references': refs}, job['call'])
                 # A duplicated "Subject:" line is removed; placeholders are only flagged, never filled in.
                 result['english'] = re.sub(r'\A\s*subject:[^\n]*\n+', '', result['english'], flags=re.I).strip()
-                # Some models echo the field description instead of writing a subject; leave it blank for the user.
-                if re.fullmatch(r'\s*(?:an?\s+)?(?:short\s+)?(?:english\s+)?subject(?:\s+line)?(?:\s+in\s+english)?\s*', result['subject'], flags=re.I):
-                    result['subject'] = ''
+                # Some models echo the field description instead of writing subjects; drop those.
+                echo = re.compile(r'\s*(?:an?\s+)?(?:(?:short|concise)\s+)?(?:english\s+)?subject(?:\s+line)?s?(?:\s+in\s+english)?\s*\d*\s*', re.I)
+                result['subjects'] = [x for x in result.pop('subjects') if not echo.fullmatch(x)]
+                result['subject'] = result['subjects'][0] if result['subjects'] else ''
+                if not result['subjects']:
                     result['uncertainties'].append('제목이 생성되지 않았습니다. 직접 입력하세요.')
+                # "as requested / as mentioned" asserts something the user did not write (e.g. that the reader asked for it): drop it.
+                if not re.search(r'요청하신|요청에\s*따라|말씀하신|언급하신|말씀드린|언급한', data['korean']):
+                    result['english'] = re.sub(r',?\s+as\s+(?:requested|mentioned|discussed|previously\s+mentioned)(?=[\s.,;])', '', result['english'], flags=re.I)
                 if re.search(r'\[[^\]\n]{1,40}\]', result['english']):
                     result['uncertainties'].append('영문에 [ ] 자리표시자가 있습니다. 직접 수정하거나 삭제하세요.')
                 result['check'] = compare(data['korean'], result['english'])

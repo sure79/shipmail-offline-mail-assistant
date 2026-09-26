@@ -196,11 +196,25 @@ Return only the specified JSON. Never include reasoning or chain of thought. Kor
 TASKS = {
     'translate': ("Translate each item of data.segments into natural Korean, keeping the same id. Keep equipment IDs, drawing numbers and revisions exactly as written (e.g. No.2, Rev.E). Keep person and company names in their original spelling. Translate weekdays and dates exactly. "
                   "Then list the sender's requests, conditions/exceptions, and uncertain points in Korean: at most 5 short items each, summarized in a few words rather than repeating whole sentences; use an empty list if there are none."),
-    'reply': ('Write a polite, concise business English email that says ONLY what data.korean says, nothing more. '
-              'Keep the scope of limiting words (only/만, except/제외, not/않) attached to exactly the same item as in data.korean. '
-              'Do not add requests, questions, dates, reasons, "as requested", approvals or commitments that are not in data.korean. '
-              'subject: a short English subject that summarizes the reply content (for example "Revised POWER DIAGRAM"). english: the body only, with no "Subject:" line, no greeting names or signature, and no placeholders such as [Name]. '
-              'korean_meaning: faithful Korean meaning of your english (Korean). uncertainties: points the user should check (Korean).'),
+    'reply': ('You are an experienced ship electrical design engineer writing to a shipyard, equipment maker or classification society. '
+              'Turn data.korean into polished, courteous, natural business English that a skilled professional would send, not a word-for-word translation. '
+              'Improve wording, flow and terminology, but keep the MEANING and the TYPE of every sentence: a statement or information stays a statement, '
+              'a request stays a request, a promise stays a promise. Never turn information into a question or a request for confirmation, and never add requests, reasons, '
+              'numbers, dates, deadlines, rule or clause numbers, approvals, commitments or technical requirements that are not in data.korean. '
+              'Keep limiting words on exactly the same item (only/만, except/제외, not/않). Keep abbreviations and names the user wrote (for example "ES (emergency stop)"). '
+              'Vary the phrasing naturally; do not open every email with "For your information", and do not write "as requested" or "as mentioned" unless data.korean says so. '
+              'Courtesy: if data.korean starts with a greeting or thanks, you MUST keep it as one courteous opening sentence (for example "Thank you for your continued cooperation."); you may end with at most one short closing sentence '
+              '(for example "Thank you for your cooperation."). Do not repeat any information. '
+              'Use marine electrical terminology: 선급/선급 룰 -> Class rules, 갤리/갈리 -> galley, 스탑 버튼 -> local stop pushbutton, 비상 정지 -> emergency stop, 도면 -> drawing, 호선 -> hull. '
+              'Examples of good polishing: '
+              '"안녕하세요. 항상 협조에 감사합니다. 수정된 케이블 목록을 첨부합니다. 검토 부탁드립니다." -> "Thank you for your continued cooperation. Please find the revised cable list attached for your review." (keep the thanks as the opening sentence). '
+              '"No.2 펌프 모터는 440 V, 3.7 kW입니다." -> "The No.2 pump motor is rated at 440 V, 3.7 kW." (information stays information; do NOT write "could you confirm"). '
+              '"케이블 글랜드는 공급 범위에 포함되지 않습니다." -> "Please note that cable glands are not included in our scope of supply." (do NOT ask whether they are included). '
+              '"갤리 쪽만 ES3로 변경했습니다." -> "Please note that only the galley side has been changed to ES3." '
+              '"선급 룰에 따라 갤리 팬 근처에 스탑 버튼이 있어야 합니다. 별도 설치 부탁드립니다." -> "According to the Class rules, the galley fan requires a local stop pushbutton nearby. We would therefore appreciate it if you could install it separately." '
+              'english: the body only, entirely in English, with no "Subject:" line, no greeting names or signature, and no placeholders such as [Name]. '
+              'subjects: exactly three different concise English subject lines (4 to 9 words each) for this email, entirely in English. '
+              'korean_meaning: faithful Korean meaning of your english, written in Korean. uncertainties: short points the user should check, written in Korean (not English).'),
     'summary': ("data.original is a received email. In Korean, list the sender's requests, conditions/exceptions, and uncertain points: "
                 "at most 5 short items each, a few words each, summarized rather than repeating whole sentences; use an empty list if there are none."),
     'gaps': ('data.original is a received email and data.korean is the user\'s planned reply. List, in Korean, each question or request in data.original '
@@ -213,7 +227,7 @@ def schema_for(kind):
     if kind == 'translate':
         props = {'segments': {'type': 'array', 'items': {'type': 'object', 'properties': {'id': {'type': 'integer'}, 'korean': {'type': 'string'}}, 'required': ['id', 'korean'], 'additionalProperties': False}}, 'requests': strings, 'conditions': strings, 'uncertainties': strings}
     elif kind == 'reply':
-        props = {'subject': {'type': 'string'}, 'english': {'type': 'string'}, 'korean_meaning': {'type': 'string'}, 'uncertainties': strings}
+        props = {'subjects': strings, 'english': {'type': 'string'}, 'korean_meaning': {'type': 'string'}, 'uncertainties': strings}
     elif kind == 'gaps':
         props = {'unanswered': strings}
     elif kind == 'summary':
@@ -235,6 +249,13 @@ def validate_output(kind, data, ids=None):
             raise ValueError('응답 목록 오류')
         elif key != 'segments' and any(not isinstance(v, str) or len(v) > 4000 for v in value):
             raise ValueError('응답 항목 오류')
+    if kind == 'reply':
+        # English only: Korean left in the body or in every subject is rejected so generate() retries once.
+        if HANGUL.search(data['english']):
+            raise ValueError('영어 회신에 한국어가 섞임')
+        data['subjects'] = [s.strip().strip('"') for s in data['subjects'] if s.strip() and not HANGUL.search(s)][:3]
+        if not data['subjects']:
+            raise ValueError('영어 제목 없음')
     if kind == 'translate':
         items = data['segments']
         if any(not isinstance(v, dict) or set(v) != {'id', 'korean'} or type(v['id']) is not int or not isinstance(v['korean'], str) or not v['korean'].strip() or len(v['korean']) > 12000 for v in items):
@@ -248,6 +269,7 @@ def output_budget(settings):
     # Reserve room for the answer in proportion to the context window (4096 -> 1536, 8192+ -> 3000 tokens).
     return min(3000, settings['context_size'] * 3 // 8)
 
+HANGUL = re.compile(r'[\uac00-\ud7a3\u3131-\u318e]')
 THINK_BLOCK = re.compile(r'<think>.*?</think>', re.S)
 
 def payload_for(settings, kind, messages, schema):

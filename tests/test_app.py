@@ -107,6 +107,19 @@ class ReviewTests(unittest.TestCase):
         gaps=compare('The fan is not required to stop.','팬은 멈춰야 합니다.')['concept_gaps']
         self.assertIn('부정(않/없/not)',[g['concept'] for g in gaps])
         self.assertFalse(compare('No.2 pump','No.2 펌프')['concept_gaps'])
+    def test_courtesy_phrases_not_flagged(self):
+        from checks import concept_gaps
+        ko = '선급 룰에 따라 갤리 팬 근처에 스탑 버튼이 있어야 합니다. 별도 설치를 부탁드립니다.'
+        en = 'As per the class rules, a local stop pushbutton is required near the galley fan. We would appreciate it if you could install it separately. Please let us know if you have any questions.'
+        self.assertFalse(concept_gaps(ko, en))
+        self.assertTrue(concept_gaps('팬을 설치해 주세요.', 'Please install the fan only if the maker agrees.'))
+    def test_request_added_or_dropped(self):
+        from checks import request_gap
+        self.assertEqual(request_gap('No.2 펌프 모터는 440 V, 3.7 kW입니다.', 'We would appreciate it if you could confirm the No.2 pump motor rating.')[0]['side'], 'added')
+        self.assertFalse(request_gap('No.2 펌프 모터는 440 V, 3.7 kW입니다.', 'For your information, the No.2 pump motor is rated at 440 V. Please let us know if you have any questions.'))
+        self.assertFalse(request_gap('케이블 글랜드는 포함되지 않습니다.', 'Please note that cable glands are not included. Thank you for your cooperation.'))
+        self.assertEqual(request_gap('검토 후 승인 부탁드립니다.', 'The drawing has been reviewed.')[0]['side'], 'missing')
+        self.assertFalse(request_gap('별도 설치 부탁드립니다.', 'We would appreciate it if you could install it separately.'))
     def test_korean_suffix_after_unit(self):
         r=compare('440 V, 3.7 kW, No.2 pump','No.2 펌프는 440 V, 3.7 kW입니다.')
         self.assertFalse(r['missing'] or r['added'])
@@ -203,6 +216,14 @@ class SecurityTests(unittest.TestCase):
             ensure_local(DEFAULTS)
         self.assertIn('선택',str(ctx.exception))
         fake.assert_not_called()
+    def test_reply_english_only_with_three_subjects(self):
+        good = {'subjects': ['Request for Separate Emergency Stop', '비상 정지 요청', 'Galley Fan Local Stop Pushbutton'], 'english': 'Please install it.', 'korean_meaning': '설치 요청', 'uncertainties': []}
+        out = validate_output('reply', good)
+        self.assertEqual(out['subjects'], ['Request for Separate Emergency Stop', 'Galley Fan Local Stop Pushbutton'])
+        with self.assertRaises(ValueError):
+            validate_output('reply', {**good, 'english': '갤리 팬 please install.'})
+        with self.assertRaises(ValueError):
+            validate_output('reply', {**good, 'subjects': ['비상 정지 별도 설치 요청']})
     def test_output_missing_segment(self):
         with self.assertRaises(ValueError):
             validate_output('translate',{'segments':[{'id':2,'korean':'내용'}],'requests':[],'conditions':[],'uncertainties':[]},[1,2])
@@ -343,6 +364,16 @@ class HTTPTests(unittest.TestCase):
         self.assertFalse([g for g in self.server.app.db.glossary() if g[0] == 'yard'])
         self.server.app.db.settings({'auto_learn': False})
         self.assertEqual(self.call('/api/learn', body, self.auth())[0], 400)
+    def test_reply_drops_unfounded_as_requested(self):
+        body = {'subjects': ['Separate Emergency Stop for Galley Fan'], 'english': 'We would appreciate it if you could install the emergency stop separately as requested.', 'korean_meaning': '설치 부탁', 'uncertainties': []}
+        with patch('app.ensure_local'), patch('app.generate', return_value=(body, .01)):
+            self.server.app.start({'kind': 'reply', 'korean': 'ES를 별도로 설치 부탁드립니다.'})
+            for _ in range(100):
+                if self.server.app.job['status'] != 'running': break
+                time.sleep(.01)
+            r = self.server.app.job['result']
+            self.assertEqual(r['english'], 'We would appreciate it if you could install the emergency stop separately.')
+            self.assertEqual(r['subjects'], ['Separate Emergency Stop for Galley Fan'])
     def test_host_origin_csrf(self):
         self.assertEqual(self.call(headers={'Host':'evil.com'})[0],403)
         self.assertEqual(self.call('/api/bootstrap',headers={'Origin':'https://evil.com'})[0],403)

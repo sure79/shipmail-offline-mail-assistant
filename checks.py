@@ -88,7 +88,10 @@ CONCEPTS = [
     ('조건(경우/if)', re.compile(r'경우|한해|한하여|조건|다면|라면|으면|\bif\b|\bunless\b|\bprovided that\b|\bon condition\b|\bin case\b', re.I)),
 ]
 
+COURTESY = re.compile(r"\b(?:(?:would|will|should)\s+(?:\w+\s+)?(?:appreciate|be\s+grateful|be\s+pleased)(?:\s+it)?\s+if|please\s+let\s+(?:us|me)\s+know\s+if|(?:do\s+not|don't)\s+hesitate|as\s+per|if\s+(?:you\s+have|there\s+are)\s+any\s+(?:questions|further\s+comments|comments))\b", re.I)
+
 def concept_gaps(source, target):
+    source, target = COURTESY.sub(' ', source), COURTESY.sub(' ', target)
     gaps = []
     for name, pattern in CONCEPTS:
         src, dst = pattern.search(source), pattern.search(target)
@@ -97,6 +100,20 @@ def concept_gaps(source, target):
         elif dst and not src:
             gaps.append({'concept': name, 'side': 'added', 'value': dst.group(), 'start': dst.start(), 'end': dst.end()})
     return gaps
+
+REQUEST_KO = re.compile(r'부탁|주시기|주십시오|주세요|바랍니다|요청|해\s*주|알려\s*주|확인\s*바|주시면|주실')
+REQUEST_EN = re.compile(r"\b(?:could|would|can|will)\s+you\b|\bplease\b|\bkindly\b|\bappreciate\s+it\s+if\b|\bwe\s+(?:request|ask)\b|\brequested\s+to\b", re.I)
+# Closing courtesy and presentation phrases are not requests.
+REPLY_COURTESY = re.compile(r"(?:please\s+)?(?:let\s+(?:us|me)\s+know\s+if|(?:do\s+not|don't)\s+hesitate|should\s+you\s+have\s+any|feel\s+free)[^.\n]*[.\n]?|please\s+(?:find|note|see|be\s+informed|be\s+advised|refer)\b|thank\s+you[^.\n]*[.\n]?", re.I)
+
+def request_gap(source, target):
+    def has(text):
+        return bool(REQUEST_KO.search(text) or REQUEST_EN.search(REPLY_COURTESY.sub(' ', text)))
+    src, dst = has(source), has(target)
+    if src == dst:
+        return []
+    side = 'missing' if src else 'added'
+    return [{'concept': '요청(부탁/please)', 'side': side, 'value': '요청 표현', 'start': 0, 'end': 0}]
 
 def compare(source, target):
     left, right = extract(source), extract(target)
@@ -114,7 +131,7 @@ def compare(source, target):
             counts[item['key']] -= 1
         else:
             added.append(item)
-    return {'missing': missing, 'added': added, 'concept_gaps': concept_gaps(source, target) if source.strip() and target.strip() else [], 'source_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(source)], 'target_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(target)], 'notice': '확인 필요: 숫자·표기 및 부정·의무·조건을 사람이 검토하세요. 차이가 없어도 의미 일치를 보장하지 않습니다.'}
+    return {'missing': missing, 'added': added, 'concept_gaps': concept_gaps(source, target) + request_gap(source, target) if source.strip() and target.strip() else [], 'source_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(source)], 'target_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(target)], 'notice': '확인 필요: 숫자·표기 및 부정·의무·조건을 사람이 검토하세요. 차이가 없어도 의미 일치를 보장하지 않습니다.'}
 
 # Phrases whose Korean meaning is easy to invert. Shown beside the sentence and passed to the model as hints;
 # the translation itself is never altered automatically.
