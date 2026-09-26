@@ -1,0 +1,7 @@
+{
+  "notice": "개발자가 만든 여러 문장 평가 예문(실제 메일 아님). 원문 문장이 회신에 섞이는지, 확인 중 사항을 확정으로 바꾸는지 확인.",
+  "cases": [
+    {"id": "M01", "source": "developer", "kind": "reply", "original": "Dear Mr. Kim,\nThe fan is not required to stop during fire alarm.\nOne smoke detector shall be provided for each generator.\nPlease confirm whether the lights are supplied by the maker or installed by the shipyard, and advise the delivery date.", "korean": "조명은 조선소에서 설치합니다. 공급 주체는 아직 확인 중입니다.", "meaning": "설치=조선소, 공급 주체 미확정. 원문 문장 삽입 금지. 납기는 미답변 항목", "hints": {"none_en": ["supplied by the maker", "smoke detector", "not required to stop", "delivery date is"], "any_en": ["shipyard"], "unanswered": true}},
+    {"id": "M02", "source": "developer", "kind": "reply", "original": "Please send the revised POWER DIAGRAM and confirm the rating of No.1 and No.2 fire pumps. Also advise whether space heaters are required for all fans.", "korean": "수정된 POWER DIAGRAM을 첨부합니다. No.1 소화 펌프는 440 V, 37 kW입니다.", "meaning": "No.2 펌프와 스페이스 히터 질문은 미답변. No.2 용량을 지어내면 안 됨", "hints": {"keep": ["No.1", "440", "37"], "none_en": ["No.2 fire pump is", "space heaters are required", "space heaters are not required"], "unanswered": true}}
+  ]
+}

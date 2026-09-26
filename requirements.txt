@@ -1,0 +1,2 @@
+# Python >= 3.11 (개발 검증: Python 3.14.3, Windows 11). 외부 Python 패키지 없음 — 표준 라이브러리만 사용.
+# 로컬 AI 런타임(택1, 별도 설치): Ollama (개발 시점 최신 v0.34.3) 또는 LM Studio 로컬 서버.

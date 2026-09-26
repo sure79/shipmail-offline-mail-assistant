@@ -1,0 +1,10 @@
+data/
+__pycache__/
+*.pyc
+dist/
+tests/.tmp/
+evals/results/
+evals/user_cases.json
+runtime/
+*.sqlite3
+*backup*.json
