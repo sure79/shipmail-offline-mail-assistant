@@ -212,9 +212,12 @@ TASKS = {
               '"케이블 글랜드는 공급 범위에 포함되지 않습니다." -> "Please note that cable glands are not included in our scope of supply." (do NOT ask whether they are included). '
               '"갤리 쪽만 ES3로 변경했습니다." -> "Please note that only the galley side has been changed to ES3." '
               '"선급 룰에 따라 갤리 팬 근처에 스탑 버튼이 있어야 합니다. 별도 설치 부탁드립니다." -> "According to the Class rules, the galley fan requires a local stop pushbutton nearby. We would therefore appreciate it if you could install it separately." '
-              'english: the body only, entirely in English, with no "Subject:" line, no greeting names or signature, and no placeholders such as [Name]. '
+              'english: the email text entirely in English, with no "Subject:" line and no placeholders such as [Name]. '
+              'If data.korean starts with a salutation (for example "김 매니저님께"), begin with the matching English salutation ("Dear Mr. Kim,"); '
+              'if it ends with a sign-off and signature (for example "홍길동 드림" and a title/company line), end with "Best regards," followed by the name and the title/company '
+              '(keep company names and abbreviations as written, e.g. ABC). Do not invent a salutation or signature that data.korean does not contain. '
               'subjects: exactly three different concise English subject lines (4 to 9 words each) for this email, entirely in English. '
-              'korean_meaning: faithful Korean meaning of your english, written in Korean. uncertainties: short points the user should check, written in Korean (not English).'),
+              'uncertainties: at most 3 short points the user should check, written in Korean (not English); empty list if none.'),
     'summary': ("data.original is a received email. In Korean, list the sender's requests, conditions/exceptions, and uncertain points: "
                 "at most 5 short items each, a few words each, summarized rather than repeating whole sentences; use an empty list if there are none."),
     'gaps': ('data.original is a received email and data.korean is the user\'s planned reply. List, in Korean, each question or request in data.original '
@@ -227,7 +230,9 @@ def schema_for(kind):
     if kind == 'translate':
         props = {'segments': {'type': 'array', 'items': {'type': 'object', 'properties': {'id': {'type': 'integer'}, 'korean': {'type': 'string'}}, 'required': ['id', 'korean'], 'additionalProperties': False}}, 'requests': strings, 'conditions': strings, 'uncertainties': strings}
     elif kind == 'reply':
-        props = {'subjects': strings, 'english': {'type': 'string'}, 'korean_meaning': {'type': 'string'}, 'uncertainties': strings}
+        # No Korean back-translation here: it doubled the output of long letters and delayed the subjects.
+        # The [한국어 뜻 확인] button produces it on demand.
+        props = {'subjects': strings, 'english': {'type': 'string'}, 'uncertainties': strings}
     elif kind == 'gaps':
         props = {'unanswered': strings}
     elif kind == 'summary':

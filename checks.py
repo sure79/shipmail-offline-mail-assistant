@@ -19,8 +19,9 @@ def segments(text):
         spans.append({'id': len(spans)+1, 'start': start, 'end': len(text), 'text': text[start:]})
     return spans
 
+MONTHS = {m: i for i, m in enumerate('jan feb mar apr may jun jul aug sep oct nov dec'.split(), 1)}
 WEEKDAYS = {name: f'weekday{i}' for i, names in enumerate([('monday', '월요일'), ('tuesday', '화요일'), ('wednesday', '수요일'), ('thursday', '목요일'), ('friday', '금요일'), ('saturday', '토요일'), ('sunday', '일요일')], 1) for name in names}
-PATTERN = re.compile(r'(?<![A-Za-z0-9])(?-i:[A-Z]{2,10})(?![A-Za-z0-9.])|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|[월화수목금토일]요일|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\d{4}년\s*\d{1,2}월\s*\d{1,2}일|\bNo\.?\s*\d+|\bRev\.?\s*[A-Z0-9]+|\b\d+(?:\.\d+)?\s*(?:kW|kVA|mm|Hz|VAC|VDC|V|A|pcs?|sets?)(?![A-Za-z0-9])|\d+(?:\.\d+)?\s*(?:개|대|세트)|\b[A-Z]+[A-Z0-9]*(?:[-_/][A-Z0-9]+)+\b|\b[A-Z]{1,6}\d+[A-Z0-9]*\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b|(?<![\w.])\d+(?:\.\d+)?(?![\w.])', re.I)
+PATTERN = re.compile(r'(?<![A-Za-z0-9\-_/])(?-i:[A-Z]{2,10})(?![A-Za-z0-9.\-_/])|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|[월화수목금토일]요일|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?\b(?!\s*,?\s*\d{4})|(?<!\d{4}년\s)(?<!\d{4}년)\d{1,2}월\s*\d{1,2}일|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?![0-9])|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*(?:개|대|세트|가지|곳|장|번|명)|\d{4}년\s*\d{1,2}월\s*\d{1,2}일|\bNo\.?\s*\d+|(?-i:\b(?:Rev|REV)\.?\s*[A-Z0-9]{1,3}(?![A-Za-z0-9]))|\b\d+(?:\.\d+)?\s*(?:kW|kVA|mm|Hz|VAC|VDC|V|A|pcs?|sets?)(?![A-Za-z0-9])|\d+(?:\.\d+)?\s*(?:개|대|세트)|(?-i:\b[A-Z]+[A-Z0-9]*(?:[-_/][A-Z0-9]+)+\b)|(?-i:\b[A-Z]{1,6}\d+[A-Z0-9]*(?![A-Za-z0-9]))|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b|(?<![\w.])\d+(?:\.\d+)?(?![A-Za-z0-9.])', re.I)
 WORDS = dict(zip('one two three four five six seven eight nine ten'.split(), map(str, range(1, 11))))
 REVIEW = re.compile(r'\b(?:not|no(?!\.?\s*\d)|shall|must|required|except|unless|only|if|whether|each|per|by|before|after|supplied|installed|supersedes?|approved|approval)\b|않|없|아니|제외|경우|만(?=[\s,.]|$)|각각|마다|해야|이전|이후|까지|공급|설치|승인|대체', re.I)
 
@@ -31,8 +32,16 @@ def canonical(value):
     value = unicodedata.normalize('NFKC', value).lower().strip()
     if value in WORDS:
         return WORDS[value]
+    native = re.fullmatch(r'(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*(?:개|대|세트|가지|곳|장|번|명)', value)
+    if native:
+        return str('한 두 세 네 다섯 여섯 일곱 여덟 아홉 열'.split().index(native.group(1)) + 1)
     if value in WEEKDAYS:
         return WEEKDAYS[value]
+    md = re.fullmatch(r'([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?', value) or re.fullmatch(r'(\d{1,2})월\s*(\d{1,2})일', value)
+    if md:
+        month = MONTHS.get(md.group(1)[:3]) if not md.group(1).isdigit() else int(md.group(1))
+        if month:
+            return f'md-{month}-{int(md.group(2))}'
     date = re.fullmatch(r'(\d{4})(?:[-/.]|년\s*)(\d{1,2})(?:[-/.]|월\s*)(\d{1,2})일?', value)
     if date:
         return '-'.join(str(int(x)) for x in date.groups())
@@ -88,7 +97,7 @@ CONCEPTS = [
     ('조건(경우/if)', re.compile(r'경우|한해|한하여|조건|다면|라면|으면|\bif\b|\bunless\b|\bprovided that\b|\bon condition\b|\bin case\b', re.I)),
 ]
 
-COURTESY = re.compile(r"\b(?:(?:would|will|should)\s+(?:\w+\s+)?(?:appreciate|be\s+grateful|be\s+pleased)(?:\s+it)?\s+if|please\s+let\s+(?:us|me)\s+know\s+if|(?:do\s+not|don't)\s+hesitate|as\s+per|if\s+(?:you\s+have|there\s+are)\s+any\s+(?:questions|further\s+comments|comments))\b", re.I)
+COURTESY = re.compile(r"\b(?:(?:would|will|should)\s+(?:\w+\s+)?(?:appreciate|be\s+grateful|be\s+pleased)(?:\s+it)?\s+if|please\s+let\s+(?:us|me)\s+know\s+if|(?:do\s+not|don't)\s+hesitate|as\s+per|if\s+you\s+(?:could|would|can)|if\s+(?:you\s+have|there\s+are)\s+any\s+(?:questions|further\s+comments|comments))\b", re.I)
 
 def concept_gaps(source, target):
     source, target = COURTESY.sub(' ', source), COURTESY.sub(' ', target)
@@ -102,7 +111,7 @@ def concept_gaps(source, target):
     return gaps
 
 REQUEST_KO = re.compile(r'부탁|주시기|주십시오|주세요|바랍니다|요청|해\s*주|알려\s*주|확인\s*바|주시면|주실')
-REQUEST_EN = re.compile(r"\b(?:could|would|can|will)\s+you\b|\bplease\b|\bkindly\b|\bappreciate\s+it\s+if\b|\bwe\s+(?:request|ask)\b|\brequested\s+to\b", re.I)
+REQUEST_EN = re.compile(r"\b(?:could|would|can|will)\s+you\b|\bplease\b|\bkindly\b|\bappreciate\s+it\s+if\b|\bwe\s+(?:request|ask)\b|\b(?:like|wish|want)\s+to\s+(?:request|ask)\b|\bif\s+you\s+(?:could|would|can)\b|\brequested\s+to\b", re.I)
 # Closing courtesy and presentation phrases are not requests.
 REPLY_COURTESY = re.compile(r"(?:please\s+)?(?:let\s+(?:us|me)\s+know\s+if|(?:do\s+not|don't)\s+hesitate|should\s+you\s+have\s+any|feel\s+free)[^.\n]*[.\n]?|please\s+(?:find|note|see|be\s+informed|be\s+advised|refer)\b|thank\s+you[^.\n]*[.\n]?", re.I)
 

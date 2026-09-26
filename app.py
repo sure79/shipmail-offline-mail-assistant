@@ -46,6 +46,8 @@ HAN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
 # (catches mixed output such as "shall be 변경 from DOL to").
 UNTRANSLATED_WORDS = re.compile(r'\b(?:shall|should|must|will|would|could|be|is|are|was|were|been|the|from|to|of|for|with|and|or|that|this|which|please|changed|required|provided)\b', re.I)
 ENGLISH_FIELD = re.compile(r'"english"\s*:\s*"((?:[^"\\]|\\.)*)')
+SIGN_OFF = re.compile(r'\n\s*(?:best|kind|warm|warmest)?\s*(?:regards|wishes)\s*,?\s*\n[\s\S]*$|\n\s*(?:yours\s+)?(?:sincerely|faithfully)(?:\s+yours)?\s*,?\s*\n[\s\S]*$', re.I)
+ENGLISH_DONE = re.compile(r'"english"\s*:\s*"(?:[^"\\]|\\.)*"')
 HANGUL_TEXT = re.compile(r'[\uac00-\ud7a3]')
 KOREAN_FIELD = re.compile(r'"korean"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
@@ -231,6 +233,8 @@ class App:
                 # The received mail is not given to the writer step, so its sentences cannot leak into the reply.
                 def on_reply_text(text):
                     # Show the English body while it is being written (JSON key "english" streams first).
+                    if ENGLISH_DONE.search(text):
+                        job['progress'] = '영어 본문 완료 · 제목 후보 작성 중'
                     m = ENGLISH_FIELD.search(text)
                     if m:
                         try:
@@ -239,6 +243,7 @@ class App:
                             return
                         job['partial'] = {'reply_draft': draft}
                 result, _ = generate(settings, 'reply', {'korean': data['korean'], 'reviewed_references': refs}, job['call'], on_text=on_reply_text)
+                result['korean_meaning'] = ''
                 result['english'] = restore_abbreviations(data['korean'], result['english'])
                 # Check items are meant for the Korean-speaking user; drop items the model wrote in English.
                 result['uncertainties'] = [u for u in result['uncertainties'] if HANGUL_TEXT.search(u)]
@@ -251,8 +256,14 @@ class App:
                 if not result['subjects']:
                     result['uncertainties'].append('제목이 생성되지 않았습니다. 직접 입력하세요.')
                 # "as requested / as mentioned" asserts something the user did not write (e.g. that the reader asked for it): drop it.
-                if not re.search(r'요청하신|요청에\s*따라|말씀하신|언급하신|말씀드린|언급한', data['korean']):
-                    result['english'] = re.sub(r',?\s+as\s+(?:requested|mentioned|discussed|previously\s+mentioned)(?=[\s.,;])', '', result['english'], flags=re.I)
+                if not re.search(r'요청하신|요청에\s*따라|말씀하신|언급하신|말씀드린|언급한|바와\s*같이|논의한|협의한|공유된|공유한', data['korean']):
+                    result['english'] = re.sub(r',?\s+as\s+(?:requested|mentioned|discussed|previously\s+mentioned)(?=\s*[.,;!](?:\s|$))', '', result['english'], flags=re.I)
+                if settings['signature'].strip():
+                    # The user's registered English signature replaces any sign-off block the model wrote.
+                    result['english'] = SIGN_OFF.sub('', result['english']).rstrip()
+                elif re.search(r'드림|올림|배상|\n\s*[가-힣]{2,4}\s*$', data['korean'].strip()):
+                    # A sign-off the user wrote is kept, but a Korean name had to be romanized by the model.
+                    result['uncertainties'].append('서명의 이름 영문 표기는 AI가 정한 것입니다. ⚙ 설정 → 서명에 영문 서명을 한 번 등록하면 항상 그 서명을 씁니다.')
                 if re.search(r'\[[^\]\n]{1,40}\]', result['english']):
                     result['uncertainties'].append('영문에 [ ] 자리표시자가 있습니다. 직접 수정하거나 삭제하세요.')
                 result['check'] = compare(data['korean'], result['english'])
