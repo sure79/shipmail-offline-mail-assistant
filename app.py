@@ -13,7 +13,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from checks import segments, compare, cautions, rule_translations, normalize_term
+from checks import segments, compare, cautions, rule_translations, normalize_term, restore_abbreviations, REQUEST_EN
 from model import Call, ModelError, RUNTIME_NAMES, ensure_local, generate, request, runtime_status, validate_settings
 from store import Store, FIELDS, RUNTIMES, export_csv
 
@@ -32,6 +32,8 @@ HAN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
 # Three or more English function words inside the Korean result = part of the sentence was left untranslated
 # (catches mixed output such as "shall be 변경 from DOL to").
 UNTRANSLATED_WORDS = re.compile(r'\b(?:shall|should|must|will|would|could|be|is|are|was|were|been|the|from|to|of|for|with|and|or|that|this|which|please|changed|required|provided)\b', re.I)
+ENGLISH_FIELD = re.compile(r'"english"\s*:\s*"((?:[^"\\]|\\.)*)')
+HANGUL_TEXT = re.compile(r'[\uac00-\ud7a3]')
 KOREAN_FIELD = re.compile(r'"korean"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 def untranslated(text):
@@ -214,7 +216,19 @@ class App:
                 refs = self.bounded_refs(data['original'] + '\n' + data['korean'])
                 job['progress'] = '영어 회신 작성 중'
                 # The received mail is not given to the writer step, so its sentences cannot leak into the reply.
-                result, _ = generate(settings, 'reply', {'korean': data['korean'], 'reviewed_references': refs}, job['call'])
+                def on_reply_text(text):
+                    # Show the English body while it is being written (JSON key "english" streams first).
+                    m = ENGLISH_FIELD.search(text)
+                    if m:
+                        try:
+                            draft = json.loads('"' + m.group(1).rstrip('\\') + '"')
+                        except ValueError:
+                            return
+                        job['partial'] = {'reply_draft': draft}
+                result, _ = generate(settings, 'reply', {'korean': data['korean'], 'reviewed_references': refs}, job['call'], on_text=on_reply_text)
+                result['english'] = restore_abbreviations(data['korean'], result['english'])
+                # Check items are meant for the Korean-speaking user; drop items the model wrote in English.
+                result['uncertainties'] = [u for u in result['uncertainties'] if HANGUL_TEXT.search(u)]
                 # A duplicated "Subject:" line is removed; placeholders are only flagged, never filled in.
                 result['english'] = re.sub(r'\A\s*subject:[^\n]*\n+', '', result['english'], flags=re.I).strip()
                 # Some models echo the field description instead of writing subjects; drop those.
@@ -239,7 +253,8 @@ class App:
                     job['progress'] = '영어 회신 완료 · 받은 메일 중 미답변 항목 확인 중'
                     try:
                         gaps, _ = generate(settings, 'gaps', {'original': data['original'], 'context': data['context'], 'korean': data['korean']}, job['call'])
-                        result['unanswered'] = gaps['unanswered']
+                        # Keep only items that are requests/questions (drops plain statements and instructions quoted from the mail).
+                        result['unanswered'] = [u for u in gaps['unanswered'] if HANGUL_TEXT.search(u) or REQUEST_EN.search(u) or '?' in u or re.search(r'\b(?:advise|confirm|indicate|send|submit|provide|inform)\b', u, re.I)]
                     except ModelError as error:
                         soft_stop = True
                         result['uncertainties'].append('미답변 항목 확인을 ' + ('취소했습니다.' if job['call'].cancelled.is_set() else '하지 못했습니다: ' + str(error)))

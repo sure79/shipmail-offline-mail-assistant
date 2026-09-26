@@ -20,7 +20,7 @@ def segments(text):
     return spans
 
 WEEKDAYS = {name: f'weekday{i}' for i, names in enumerate([('monday', '월요일'), ('tuesday', '화요일'), ('wednesday', '수요일'), ('thursday', '목요일'), ('friday', '금요일'), ('saturday', '토요일'), ('sunday', '일요일')], 1) for name in names}
-PATTERN = re.compile(r'\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|[월화수목금토일]요일|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\d{4}년\s*\d{1,2}월\s*\d{1,2}일|\bNo\.?\s*\d+|\bRev\.?\s*[A-Z0-9]+|\b\d+(?:\.\d+)?\s*(?:kW|kVA|mm|Hz|VAC|VDC|V|A|pcs?|sets?)(?![A-Za-z0-9])|\d+(?:\.\d+)?\s*(?:개|대|세트)|\b[A-Z]+[A-Z0-9]*(?:[-_/][A-Z0-9]+)+\b|\b[A-Z]{1,6}\d+[A-Z0-9]*\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b|(?<![\w.])\d+(?:\.\d+)?(?![\w.])', re.I)
+PATTERN = re.compile(r'(?<![A-Za-z0-9])(?-i:[A-Z]{2,10})(?![A-Za-z0-9.])|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|[월화수목금토일]요일|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\d{4}년\s*\d{1,2}월\s*\d{1,2}일|\bNo\.?\s*\d+|\bRev\.?\s*[A-Z0-9]+|\b\d+(?:\.\d+)?\s*(?:kW|kVA|mm|Hz|VAC|VDC|V|A|pcs?|sets?)(?![A-Za-z0-9])|\d+(?:\.\d+)?\s*(?:개|대|세트)|\b[A-Z]+[A-Z0-9]*(?:[-_/][A-Z0-9]+)+\b|\b[A-Z]{1,6}\d+[A-Z0-9]*\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b|(?<![\w.])\d+(?:\.\d+)?(?![\w.])', re.I)
 WORDS = dict(zip('one two three four five six seven eight nine ten'.split(), map(str, range(1, 11))))
 REVIEW = re.compile(r'\b(?:not|no(?!\.?\s*\d)|shall|must|required|except|unless|only|if|whether|each|per|by|before|after|supplied|installed|supersedes?|approved|approval)\b|않|없|아니|제외|경우|만(?=[\s,.]|$)|각각|마다|해야|이전|이후|까지|공급|설치|승인|대체', re.I)
 
@@ -115,6 +115,20 @@ def request_gap(source, target):
     side = 'missing' if src else 'added'
     return [{'concept': '요청(부탁/please)', 'side': side, 'value': '요청 표현', 'start': 0, 'end': 0}]
 
+ABBR_DEFINITION = re.compile(r'(?<![A-Za-z0-9])([A-Z]{2,8})\s*\(\s*([A-Za-z][A-Za-z .\-/]{2,60}?)\s*\)')
+
+def restore_abbreviations(korean, english):
+    """If the user wrote "ES(EMERGENCY STOP)" and the English only says "emergency stop", write "ES (emergency stop)".
+    Only the user's own abbreviation is inserted; nothing else is changed."""
+    for abbr, expansion in ABBR_DEFINITION.findall(korean):
+        if re.search(r'(?<![A-Za-z0-9])' + abbr + r'(?![A-Za-z0-9])', english):
+            continue
+        words = r'\s+'.join(re.escape(w) for w in expansion.split())
+        found = re.search(r'\b(' + words + r')\b', english, re.I)
+        if found:
+            english = english[:found.start()] + f'{abbr} ({found.group(1)})' + english[found.end():]
+    return english
+
 def compare(source, target):
     left, right = extract(source), extract(target)
     counts = Counter(x['key'] for x in right)
@@ -131,6 +145,11 @@ def compare(source, target):
             counts[item['key']] -= 1
         else:
             added.append(item)
+    # An upper-case word (ES, MSBD, POWER DIAGRAM) counts as present when the same word appears in any case on the other side.
+    def present(item, text):
+        return item['value'].isalpha() and item['value'].isupper() and re.search(r'(?<![A-Za-z0-9])' + re.escape(item['value']) + r'(?![A-Za-z0-9])', text, re.I)
+    missing = [m for m in missing if not present(m, target)]
+    added = [a for a in added if not present(a, source)]
     return {'missing': missing, 'added': added, 'concept_gaps': concept_gaps(source, target) + request_gap(source, target) if source.strip() and target.strip() else [], 'source_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(source)], 'target_markers': [{'value': m.group(), 'start': m.start(), 'end': m.end()} for m in REVIEW.finditer(target)], 'notice': '확인 필요: 숫자·표기 및 부정·의무·조건을 사람이 검토하세요. 차이가 없어도 의미 일치를 보장하지 않습니다.'}
 
 # Phrases whose Korean meaning is easy to invert. Shown beside the sentence and passed to the model as hints;
