@@ -397,6 +397,13 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(r['english'], 'Please install the ES (emergency stop) separately.')
             self.assertEqual(r['uncertainties'], ['설치 위치를 확인하세요.'])
             self.assertEqual(r['unanswered'], ['Please advise the delivery date.', '납기 문의에 답하지 않았습니다.'])
+    def test_bootstrap_reports_code_version(self):
+        boot = json.loads(self.call('/api/bootstrap')[1])
+        self.assertTrue(boot['version'])
+        self.assertEqual(boot['version'], boot['disk_version'])
+        with patch('app.code_version', return_value='changed'):
+            boot = json.loads(self.call('/api/bootstrap')[1])
+            self.assertNotEqual(boot['version'], boot['disk_version'])
     def test_host_origin_csrf(self):
         self.assertEqual(self.call(headers={'Host':'evil.com'})[0],403)
         self.assertEqual(self.call('/api/bootstrap',headers={'Origin':'https://evil.com'})[0],403)

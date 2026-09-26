@@ -1,5 +1,6 @@
 """ShipMail local application; Python standard library only."""
 import argparse
+import hashlib
 import csv
 import io
 import json
@@ -18,6 +19,18 @@ from model import Call, ModelError, RUNTIME_NAMES, ensure_local, generate, reque
 from store import Store, FIELDS, RUNTIMES, export_csv
 
 ROOT = Path(__file__).resolve().parent
+
+def code_version():
+    """Fingerprint of the Python code on disk. Screens are served fresh from disk, but Python code only changes on restart."""
+    digest = hashlib.sha1()
+    for name in ('app.py', 'model.py', 'checks.py', 'store.py', 'seed.py'):
+        try:
+            digest.update((ROOT / name).read_bytes())
+        except OSError:
+            pass
+    return digest.hexdigest()[:12]
+
+RUNNING_VERSION = code_version()
 MAX_BODY = 8_000_000
 
 def text_input(data, key, limit=12000):
@@ -332,7 +345,8 @@ class Handler(BaseHTTPRequestHandler):
             path, query = parsed.path, parse_qs(parsed.query)
             if path == '/api/bootstrap':
                 self.app.warm()
-                return self.respond({'token': self.app.token, 'settings': self.app.db.settings(), 'fields': FIELDS, 'runtimes': RUNTIMES})
+                return self.respond({'token': self.app.token, 'settings': self.app.db.settings(), 'fields': FIELDS, 'runtimes': RUNTIMES,
+                                     'version': RUNNING_VERSION, 'disk_version': code_version()})
             if path == '/api/status':
                 return self.respond(self.app.status())
             if path == '/api/job':
